@@ -16,7 +16,7 @@ dashboards/pv_miner_dashboard.yaml                    # Beispiel‑Dashboard
 1. **Blueprint importieren**
 
    ```
-   https://my.home-assistant.io/redirect/blueprint_import/?download_url=https://raw.githubusercontent.com/<USER>/<REPO>/main/blueprints/automation/pv_soc_multi/pv_soc_multi.yaml
+   https://my.home-assistant.io/redirect/blueprint_import/?download_url=https://raw.githubusercontent.com/jansu1977/PV-ueberschuss-Schalter-mit-SoC/main/blueprints/automation/pv_soc_multi/pv_soc_multi.yaml
    ```
 
    *<USER>/<REPO>* durch deinen GitHub‑Pfad ersetzen.
