@@ -1,0 +1,13 @@
+template:
+  - sensor:
+      - name: "Selected Battery SoC"
+        unique_id: selected_battery_soc
+        unit_of_measurement: "%"
+        state: >
+          {{ states(states('input_select.battery_soc_sensor') or '') | float(default=0) }}
+      - name: "Selected PV Surplus"
+        unique_id: selected_pv_surplus
+        unit_of_measurement: "W"
+        state: >
+          {{ states(states('input_select.surplus_sensor') or '') | float(default=0) }}
+

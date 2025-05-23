@@ -1,0 +1,8 @@
+# Home Assistant / HACS
+secrets.yaml
+home-assistant_v2.db
+*.db
+.storage/
+*.log
+*.pyc
+__pycache__/

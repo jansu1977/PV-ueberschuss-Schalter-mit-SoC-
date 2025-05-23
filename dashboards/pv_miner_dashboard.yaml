@@ -1,0 +1,55 @@
+views:
+  - title: PV-Miner-Panel
+    path: pv_miner_panel
+    icon: mdi:solar-power
+    type: panel
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: gauge
+            entity: sensor.selected_battery_soc
+            name: Akku-SoC
+            min: 0
+            max: 100
+            unit: "%"
+            severity:
+              green: 60
+              yellow: 30
+              red: 0
+          - type: gauge
+            entity: sensor.selected_pv_surplus
+            name: PV-Überschuss
+            min: -1000
+            max: 5000
+            unit: "W"
+          - type: entities
+            title: Miner-Schalter
+            entities:
+              - entity: group.miner_switches
+                name: Miner Gruppe
+              - entity: automation.crypto_miner
+                name: PV-Miner-Automation
+
+  - title: Einstellungen
+    path: einstellungen
+    icon: mdi:cog
+    type: panel
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: |
+              ## Sensor- & Geräte-Zuordnung
+              Wähle hier, **welche Sensoren** für Überschuss und Akku-SoC verwendet
+              werden sollen und **welche Shelly-Steckdosen** zur *Miner Gruppe*
+              gehören.
+          - type: entities
+            show_header_toggle: false
+            entities:
+              - entity: input_select.surplus_sensor
+                name: PV-Überschuss-Sensor wählen
+              - entity: input_select.battery_soc_sensor
+                name: Batterie-SoC-Sensor wählen
+              - entity: group.miner_switches
+                name: Shelly-Miner-Gruppe
+
