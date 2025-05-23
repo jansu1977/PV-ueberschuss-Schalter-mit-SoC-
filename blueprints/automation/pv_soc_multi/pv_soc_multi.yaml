@@ -1,35 +1,39 @@
 blueprint:
   name: "PV Überschuss-Schalter mit SoC (Mehrfachgeräte)"
   description: >
-    Schaltet eine oder mehrere Schalter-Entitäten EIN, wenn genügend PV-Überschuss
-    vorhanden **und** der Batterie-SoC über einer frei wählbaren Schwelle liegt.
-    Schaltet sie AUS, sobald eine der Bedingungen nicht mehr erfüllt ist.
+    Schaltet eine oder mehrere Schalter-Entitäten **ein**, sobald
+    * PV‑Überschuss ≥ Mindest‑Überschuss **und**
+    * Batterie‑SoC ≥ Mindest‑SoC
+
+    Bleiben **eingeschaltet**, solange der SoC über dem Schwellwert liegt –
+    selbst wenn der PV‑Überschuss zwischenzeitlich verschwindet.
+    Ausgeschaltet wird erst, wenn der SoC **unter** den Schwellwert fällt.
 
     **Highlights**
-    * Unterstützt **beliebig viele Shelly-Steckdosen oder andere Switches**
+    * Unterstützt beliebig viele Shelly‑Steckdosen oder andere Switches
     * Alle Parameter bequem in der UI konfigurierbar (kein YAML nötig)
-    * Minimaler Code, voll kompatibel mit Home-Assistant 2024.10+
+    * Voll kompatibel mit Home‑Assistant 2024.10+
 
   domain: automation
   input:
     target_switches:
-      name: Ziel-Schalter (eine oder mehrere)
+      name: Ziel‑Schalter (eine oder mehrere)
       selector:
         entity:
           domain: switch
           multiple: true
     surplus_sensor:
-      name: PV-Überschuss-Sensor (W)
+      name: PV‑Überschuss‑Sensor (W)
       selector:
         entity:
           domain: sensor
     battery_soc_sensor:
-      name: Batterie-SoC-Sensor (%)
+      name: Batterie‑SoC‑Sensor (%)
       selector:
         entity:
           domain: sensor
     min_soc:
-      name: Mindest-SoC (%)
+      name: Mindest‑SoC (%)
       default: 50
       selector:
         number:
@@ -39,7 +43,7 @@ blueprint:
           unit_of_measurement: "%"
           mode: slider
     min_surplus:
-      name: Mindest-Überschuss (W)
+      name: Mindest‑Überschuss (W)
       default: 500
       selector:
         number:
@@ -49,7 +53,7 @@ blueprint:
           unit_of_measurement: "W"
           mode: slider
 
-# ---------- Blueprint-Logik ----------
+# ---------- Blueprint‑Logik ----------
 trigger:
   - platform: state
     entity_id: !input surplus_sensor
@@ -58,20 +62,29 @@ trigger:
 
 action:
   - choose:
+      # ------- Einschalten -------
       - conditions:
-          - condition: numeric_state
-            entity_id: !input battery_soc_sensor
-            above: !input min_soc
           - condition: numeric_state
             entity_id: !input surplus_sensor
             above: !input min_surplus
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            above: !input min_soc
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input target_switches
-    default:
-      - service: switch.turn_off
-        target:
-          entity_id: !input target_switches
+
+      # ------- Ausschalten -------
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            below: !input min_soc
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input target_switches
+
+    default: []
 
 mode: restart
