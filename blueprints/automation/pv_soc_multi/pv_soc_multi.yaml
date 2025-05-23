@@ -1,38 +1,35 @@
-# =============================================================
-# 1) Blueprint: PV Überschuss‑Schalter mit SoC (Mehrfachgeräte)
-# =============================================================
 blueprint:
   name: "PV Überschuss-Schalter mit SoC (Mehrfachgeräte)"
   description: >
-    Schaltet eine oder mehrere Schalter‑Entitäten EIN, wenn genügend PV‑Überschuss
-    vorhanden **und** der Batterie‑SoC über einer frei wählbaren Schwelle liegt.
+    Schaltet eine oder mehrere Schalter-Entitäten EIN, wenn genügend PV-Überschuss
+    vorhanden **und** der Batterie-SoC über einer frei wählbaren Schwelle liegt.
     Schaltet sie AUS, sobald eine der Bedingungen nicht mehr erfüllt ist.
 
     **Highlights**
-    * Unterstützt **beliebig viele Shelly‑Steckdosen oder andere Switches**
+    * Unterstützt **beliebig viele Shelly-Steckdosen oder andere Switches**
     * Alle Parameter bequem in der UI konfigurierbar (kein YAML nötig)
-    * Minimaler Code, voll kompatibel mit Home‑Assistant 2024.10+
+    * Minimaler Code, voll kompatibel mit Home-Assistant 2024.10+
 
   domain: automation
   input:
     target_switches:
-      name: Ziel‑Schalter (eine oder mehrere)
+      name: Ziel-Schalter (eine oder mehrere)
       selector:
         entity:
           domain: switch
           multiple: true
     surplus_sensor:
-      name: PV‑Überschuss‑Sensor (W)
+      name: PV-Überschuss-Sensor (W)
       selector:
         entity:
           domain: sensor
     battery_soc_sensor:
-      name: Batterie‑SoC‑Sensor (%)
+      name: Batterie-SoC-Sensor (%)
       selector:
         entity:
           domain: sensor
     min_soc:
-      name: Mindest‑SoC (%)
+      name: Mindest-SoC (%)
       default: 50
       selector:
         number:
@@ -42,7 +39,7 @@ blueprint:
           unit_of_measurement: "%"
           mode: slider
     min_surplus:
-      name: Mindest‑Überschuss (W)
+      name: Mindest-Überschuss (W)
       default: 500
       selector:
         number:
@@ -58,8 +55,6 @@ trigger:
     entity_id: !input surplus_sensor
   - platform: state
     entity_id: !input battery_soc_sensor
-
-condition: []
 
 action:
   - choose:
@@ -80,97 +75,3 @@ action:
           entity_id: !input target_switches
 
 mode: restart
-
-# =============================================================
-# 2) Template‑Sensoren, die auf auswählbare Helper verweisen
-#    (füge dies in templates.yaml oder configuration.yaml ein)
-# =============================================================
-
-template:
-  - sensor:
-      - name: "Selected Battery SoC"
-        unique_id: selected_battery_soc
-        unit_of_measurement: "%"
-        state: >
-          {{ states(states('input_select.battery_soc_sensor') or '') | float(default=0) }}
-      - name: "Selected PV Surplus"
-        unique_id: selected_pv_surplus
-        unit_of_measurement: "W"
-        state: >
-          {{ states(states('input_select.surplus_sensor') or '') | float(default=0) }}
-
-# =============================================================
-# 3) Lovelace‑Dashboard mit zwei Views:
-#    • PV‑Miner‑Panel (Status)
-#    • Einstellungen (Sensor‑ & Geräte‑Auswahl)
-# =============================================================
-
-views:
-  # 3a) Status‑Panel
-  - title: PV‑Miner‑Panel
-    path: pv_miner_panel
-    icon: mdi:solar-power
-    type: panel
-    cards:
-      - type: vertical-stack
-        cards:
-          - type: gauge
-            entity: sensor.selected_battery_soc
-            name: Akku‑SoC
-            min: 0
-            max: 100
-            unit: "%"
-            severity:
-              green: 60
-              yellow: 30
-              red: 0
-          - type: gauge
-            entity: sensor.selected_pv_surplus
-            name: PV‑Überschuss
-            min: -1000
-            max: 5000
-            unit: "W"
-          - type: entities
-            title: Miner‑Schalter
-            entities:
-              - entity: group.miner_switches
-                name: Miner Gruppe
-              - entity: automation.crypto_miner
-                name: PV‑Miner‑Automation
-
-  # 3b) Einstellungen‑View
-  - title: Einstellungen
-    path: einstellungen
-    icon: mdi:cog
-    type: panel
-    cards:
-      - type: vertical-stack
-        cards:
-          - type: markdown
-            content: |
-              ## Sensor‑ & Geräte‑Zuordnung
-              Wähle hier, **welche Sensoren** für Überschuss und Akku‑SoC verwendet
-              werden sollen und **welche Shelly‑Steckdosen** zur *Miner Gruppe*
-              gehören. Änderungen wirken sich sofort auf das System aus, ohne
-              dass du YAML bearbeiten musst.
-          - type: entities
-            show_header_toggle: false
-            entities:
-              - entity: input_select.surplus_sensor
-                name: PV‑Überschuss‑Sensor wählen
-              - entity: input_select.battery_soc_sensor
-                name: Batterie‑SoC‑Sensor wählen
-              - entity: group.miner_switches
-                name: Shelly‑Miner‑Gruppe (klick „Bearbeiten“, um Mitglieder zu ändern)
-          - type: markdown
-            content: |
-              **Hinweis:**
-              * Die Dropdown‑Listen stammen aus den *input_select*-Hilfsmitteln
-                (Einstellungen → Hilfsmittel → Auswahl). Füge dort beliebige
-                Sensoren als Optionen hinzu.
-              * Die Gruppe *miner_switches* ist ein Helfer‑Typ "Gerätegruppe";
-                auch diese lässt sich in der UI bearbeiten.
-              * Die Automation **Crypto‑Miner** muss bei der Erstellung als
-                Sensoren einfach `sensor.selected_pv_surplus` und
-                `sensor.selected_battery_soc` verwenden – so aktualisiert sie
-                sich automatisch, wenn du hier andere Sensoren auswählst.
