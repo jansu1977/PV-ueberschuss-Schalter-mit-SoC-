@@ -1,47 +1,48 @@
 blueprint:
-  name: "PV Überschuss-Schalter mit SoC (mit Vorzeichen-Option)"
+  name: "PV Überschuss‑Schalter mit SoC (mit Verzögerung)"
   description: >
-    Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind:
-      • PV-Überschuss ≥ Mindest-Überschuss  
-      • Batterie-SoC    ≥ Mindest-SoC
+    Schaltet einen beliebigen Schalter **EIN**, sobald **gleichzeitig**
 
-    *Bleibt* EIN, solange die Bedingungen gelten, und schaltet AUS, sobald eine
-    davon nicht mehr erfüllt ist.
+      • der PV‑Überschuss **für eine bestimmte Zeit** (▼ Überschuss‑Verzögerung)
+        **größer/gleich** dem eingestellten Schwellenwert ist  
+      • der Akku‑SoC **größer/gleich** dem Mindest‑SoC ist
+
+    *Bleibt* **EIN**, solange der SoC oberhalb der Schwelle liegt – unabhängig davon,
+    ob der PV‑Überschuss zwischenzeitlich zurückgeht.  
+    Erst wenn der SoC **unter** den Schwellenwert fällt, wird AUS geschaltet.
+
+    > **Hinweis:** Wenn dein Sensor bei Einspeisung **negative** Werte liefert,
+    > gib einfach einen **negativen** Mindest‑Überschuss an (z. B. −500 W).
 
     **Inputs (alle in der UI einstellbar)**
-      * Ziel-Schalter         (`switch.*`)
-      * PV-Überschuss-Sensor  (W)
-      * **Vorzeichen umkehren?** (falls dein Sensor bei Einspeisung **negativ** wird)
-      * Batterie-SoC-Sensor   (%)
-      * Mindest-SoC-Schwelle  (Slider 0-100 %)
-      * Mindest-Überschuss    (Slider −20 000 … +20 000 W)
+      * Ziel‑Schalter (`switch.*`)
+      * PV‑Überschuss‑Sensor (W)
+      * Batterie‑SoC‑Sensor (%)
+      * Mindest‑SoC‑Schwelle (0‑100 %)
+      * Mindest‑Überschuss (−20 000 … +20 000 W)
+      * Überschuss‑Verzögerung (0‑600 s)
 
   domain: automation
 
   input:
     target_switch:
-      name: Ziel-Schalter
+      name: Ziel‑Schalter
       selector:
         entity:
           filter:
             domain: switch
     surplus_sensor:
-      name: PV-Überschuss-Sensor (W)
+      name: PV‑Überschuss‑Sensor (W)
       selector:
         entity:
           domain: sensor
-    invert_surplus:
-      name: Vorzeichen des Überschuss-Sensors umkehren?
-      default: false
-      selector:
-        boolean: {}
     battery_soc_sensor:
-      name: Batterie-SoC-Sensor (%)
+      name: Batterie‑SoC‑Sensor (%)
       selector:
         entity:
           domain: sensor
     min_soc:
-      name: Mindest-SoC (%)
+      name: Mindest‑SoC (%)
       default: 50
       selector:
         number:
@@ -51,7 +52,7 @@ blueprint:
           unit_of_measurement: "%"
           mode: slider
     min_surplus:
-      name: Mindest-Überschuss (W)
+      name: Mindest‑Überschuss (W)
       default: 500
       selector:
         number:
@@ -59,6 +60,16 @@ blueprint:
           max: 20000
           step: 50
           unit_of_measurement: "W"
+          mode: slider
+    surplus_delay:
+      name: Überschuss‑Verzögerung (s)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: "s"
           mode: slider
 
 trigger:
@@ -68,28 +79,30 @@ trigger:
     entity_id: !input battery_soc_sensor
 
 action:
-  - variables:
-      pv_raw: "{{ states('!input surplus_sensor')|float(0) }}"
-      pv_adj: >
-        {% if !input invert_surplus %}
-          {{ pv_raw }}
-        {% else %}
-          {{ pv_raw * -1 }}
-        {% endif %}
   - choose:
+      # -------- EINschalten --------
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: !input min_soc
-          - condition: template
-            value_template: "{{ pv_adj|float(0) >= !input min_surplus|float }}"
+          - condition: numeric_state
+            entity_id: !input surplus_sensor
+            above: !input min_surplus
+            for:
+              seconds: !input surplus_delay
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input target_switch
-      default:
-        - service: switch.turn_off
-          target:
-            entity_id: !input target_switch
+      # -------- AUSschalten --------
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            below: !input min_soc
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input target_switch
+    default: []
 
 mode: restart
