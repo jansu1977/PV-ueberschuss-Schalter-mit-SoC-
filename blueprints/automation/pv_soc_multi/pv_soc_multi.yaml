@@ -1,36 +1,50 @@
 blueprint:
-  name: "PV Überschuss‑Schalter mit SoC (mit Verzögerung)"
+  name: "PV‑Überschuss‑Schalter (SoC, Verzögerung, Prioritäten, Notify)"
   description: >
-    Schaltet einen beliebigen Schalter **EIN**, sobald **gleichzeitig**
+    **Funktionslogik**
 
-      • der PV‑Überschuss **für eine bestimmte Zeit** (▼ Überschuss‑Verzögerung)
-        **größer/gleich** dem eingestellten Schwellenwert ist  
-      • der Akku‑SoC **größer/gleich** dem Mindest‑SoC ist
+    1. **Einschalten** (Schalter werden STUFE für STUFE aktiviert)
+       * Akku‑SoC ≥ *Mindest‑SoC*  **und**
+       * PV‑Überschuss ≥ *Mindest‑Überschuss* **für** *Überschuss‑Verzögerung* Sekunden.
+       
+       Dabei wird die Schalter‑Liste in der angegebenen Reihenfolge abgearbeitet.
+       Für jede Stufe wird *Schalt‑Leistung* Watt zusätzlicher Überschuss
+       vorausgesetzt, bevor der nächste Schalter aktiviert wird.
 
-    *Bleibt* **EIN**, solange der SoC oberhalb der Schwelle liegt – unabhängig davon,
-    ob der PV‑Überschuss zwischenzeitlich zurückgeht.  
-    Erst wenn der SoC **unter** den Schwellenwert fällt, wird AUS geschaltet.
+    2. **Betrieb**
+       *Schalter bleiben an*, bis Akku‑SoC **unter** den Schwellenwert fällt.
+       (PV‑Überschuss darf zwischendurch entfallen.)
 
-    > **Hinweis:** Wenn dein Sensor bei Einspeisung **negative** Werte liefert,
-    > gib einfach einen **negativen** Mindest‑Überschuss an (z. B. −500 W).
+    3. **Ausschalten** (mit Aus‑Verzögerung)
+       * Akku‑SoC < *Mindest‑SoC* **für** *Aus‑Verzögerung* Sekunden → alle Schalter aus.
 
-    **Inputs (alle in der UI einstellbar)**
-      * Ziel‑Schalter (`switch.*`)
-      * PV‑Überschuss‑Sensor (W)
-      * Batterie‑SoC‑Sensor (%)
-      * Mindest‑SoC‑Schwelle (0‑100 %)
-      * Mindest‑Überschuss (−20 000 … +20 000 W)
-      * Überschuss‑Verzögerung (0‑600 s)
+    4. **Benachrichtigung**
+       Bei jedem Umschalten wird optional ein Notify‑Dienst aufgerufen.
+
+    5. **Import‑Limit**
+       Einschalten erfolgt nur, wenn der aktuelle Netz‑Import **unter** dem
+       eingestellten Grenzwert liegt.
 
   domain: automation
 
   input:
-    target_switch:
-      name: Ziel‑Schalter
+    target_switches:
+      name: Schalter‑Liste (Priorität = Reihenfolge)
       selector:
         entity:
-          filter:
-            domain: switch
+          domain: switch
+          multiple: true
+    switch_step_power:
+      name: Schalt‑Leistung je Stufe (W)
+      default: 500
+      selector:
+        number:
+          min: 50
+          max: 5000
+          step: 50
+          unit_of_measurement: "W"
+          mode: slider
+
     surplus_sensor:
       name: PV‑Überschuss‑Sensor (W)
       selector:
@@ -41,8 +55,28 @@ blueprint:
       selector:
         entity:
           domain: sensor
-    min_soc:
-      name: Mindest‑SoC (%)
+    grid_import_sensor:
+      name: Netz‑Import‑Sensor (W)
+      selector:
+        entity:
+          domain: sensor
+      default: ""  # optional
+
+    min_soc_helper:
+      name: Helper‑Entität Mindest‑SoC (input_number)
+      selector:
+        entity:
+          domain: input_number
+      default: ""
+    min_surplus_helper:
+      name: Helper‑Entität Mindest‑Überschuss (input_number)
+      selector:
+        entity:
+          domain: input_number
+      default: ""
+
+    fallback_min_soc:
+      name: Fallback Mindest‑SoC (%)
       default: 50
       selector:
         number:
@@ -50,9 +84,8 @@ blueprint:
           max: 100
           step: 1
           unit_of_measurement: "%"
-          mode: slider
-    min_surplus:
-      name: Mindest‑Überschuss (W)
+    fallback_min_surplus:
+      name: Fallback Mindest‑Überschuss (W)
       default: 500
       selector:
         number:
@@ -60,49 +93,111 @@ blueprint:
           max: 20000
           step: 50
           unit_of_measurement: "W"
-          mode: slider
+
     surplus_delay:
-      name: Überschuss‑Verzögerung (s)
-      default: 0
+      name: Überschuss‑Verzögerung EIN (s)
+      default: 30
       selector:
         number:
           min: 0
           max: 600
           step: 5
           unit_of_measurement: "s"
-          mode: slider
+    off_delay:
+      name: Aus‑Verzögerung bei niedrigem SoC (s)
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: "s"
+
+    import_limit:
+      name: Max. erlaubter Netz‑Import beim Einschalten (W)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 5000
+          step: 50
+          unit_of_measurement: "W"
+
+    notify_service:
+      name: Notify‑Dienst (optional)
+      selector:
+        text: {}
+      default: ""
+
+# --------------- VARIABLEN ----------------
+variables:
+  min_soc: >
+    {{ states(min_soc_helper) | float if min_soc_helper else fallback_min_soc }}
+  min_surplus: >
+    {{ states(min_surplus_helper) | float if min_surplus_helper else fallback_min_surplus }}
 
 trigger:
   - platform: state
-    entity_id: !input surplus_sensor
-  - platform: state
-    entity_id: !input battery_soc_sensor
+    entity_id:
+      - !input surplus_sensor
+      - !input battery_soc_sensor
+      - !input grid_import_sensor
 
+# --------------- AKTION -------------------
 action:
+  - variables:
+      pv: "{{ states('!input surplus_sensor') | float(0) }}"
+      soc: "{{ states('!input battery_soc_sensor') | float(0) }}"
+      grid_import: >
+        {{ states('!input grid_import_sensor') | float(0) if grid_import_sensor else 0 }}
+
   - choose:
-      # -------- EINschalten --------
+      # ------- EINschalten mit Verzögerung & Import‑Limit -------
       - conditions:
-          - condition: numeric_state
-            entity_id: !input battery_soc_sensor
-            above: !input min_soc
-          - condition: numeric_state
-            entity_id: !input surplus_sensor
-            above: !input min_surplus
+          - condition: template
+            value_template: "{{ pv >= min_surplus }}"
             for:
               seconds: !input surplus_delay
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            above: "{{ min_soc }}"
+          - condition: template
+            value_template: "{{ grid_import <= !input import_limit }}"
         sequence:
-          - service: switch.turn_on
-            target:
-              entity_id: !input target_switch
-      # -------- AUSschalten --------
+          - service: homeassistant.turn_on
+            data:
+              entity_id: >
+                {% set available = (pv - min_surplus) | int(0) %}
+                {% set step = !input switch_step_power | int %}
+                {% set max_on = (available // step) + 1 %}
+                {% set switches = expand(!input target_switches) %}
+                {% set to_turn = [] %}
+                {% for s in switches[0:max_on] if s.state == 'off' %}
+                  {% set to_turn = to_turn + [s.entity_id] %}
+                {% endfor %}
+                {{ to_turn | join(',') }}
+          - if: "{{ notify_service }}"
+            then:
+              - service: "{{ notify_service }}"
+                data:
+                  message: "Miner‑Automatik: Schalter EIN (SoC={{ soc }}%, PV={{ pv }} W)"
+
+      # ------- AUSschalten mit Aus-Verzögerung -------
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
-            below: !input min_soc
+            below: "{{ min_soc }}"
+            for:
+              seconds: !input off_delay
         sequence:
-          - service: switch.turn_off
+          - service: homeassistant.turn_off
             target:
-              entity_id: !input target_switch
+              entity_id: !input target_switches
+          - if: "{{ notify_service }}"
+            then:
+              - service: "{{ notify_service }}"
+                data:
+                  message: "Miner‑Automatik: Schalter AUS (SoC={{ soc }}%)"
     default: []
 
 mode: restart
