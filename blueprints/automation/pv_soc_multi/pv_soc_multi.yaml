@@ -1,39 +1,47 @@
 blueprint:
-  name: "PV Überschuss‑Schalter mit SoC"
+  name: "PV Überschuss-Schalter mit SoC (mit Vorzeichen-Option)"
   description: >
-    Schaltet einen beliebigen Schalter EIN, wenn
-      • PV‑Überschuss ≥ Mindest‑Überschuss
-      • Batterie‑SoC   ≥ Mindest‑SoC.
+    Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind:
+      • PV-Überschuss ≥ Mindest-Überschuss  
+      • Batterie-SoC    ≥ Mindest-SoC
 
-    Schaltet AUS, sobald eine der beiden Bedingungen nicht mehr erfüllt ist.
+    *Bleibt* EIN, solange die Bedingungen gelten, und schaltet AUS, sobald eine
+    davon nicht mehr erfüllt ist.
 
-    **Parameter (alle in der UI einstellbar)**
-    * PV‑Überschuss‑Sensor in Watt (positiv = Einspeisung)
-    * Batterie‑SoC‑Sensor in %
-    * Mindest‑SoC (Default 50 %)
-    * Mindest‑Überschuss (Default 500 W)
-    * Ziel‑Schalter (z. B. Shelly‑Plug)
+    **Inputs (alle in der UI einstellbar)**
+      * Ziel-Schalter         (`switch.*`)
+      * PV-Überschuss-Sensor  (W)
+      * **Vorzeichen umkehren?** (falls dein Sensor bei Einspeisung **negativ** wird)
+      * Batterie-SoC-Sensor   (%)
+      * Mindest-SoC-Schwelle  (Slider 0-100 %)
+      * Mindest-Überschuss    (Slider −20 000 … +20 000 W)
 
   domain: automation
+
   input:
     target_switch:
-      name: Ziel‑Schalter
+      name: Ziel-Schalter
       selector:
         entity:
           filter:
             domain: switch
     surplus_sensor:
-      name: PV‑Überschuss‑Sensor (W)
+      name: PV-Überschuss-Sensor (W)
       selector:
         entity:
           domain: sensor
+    invert_surplus:
+      name: Vorzeichen des Überschuss-Sensors umkehren?
+      default: false
+      selector:
+        boolean: {}
     battery_soc_sensor:
-      name: Batterie‑SoC‑Sensor (%)
+      name: Batterie-SoC-Sensor (%)
       selector:
         entity:
           domain: sensor
     min_soc:
-      name: Mindest‑SoC (%)
+      name: Mindest-SoC (%)
       default: 50
       selector:
         number:
@@ -41,15 +49,17 @@ blueprint:
           max: 100
           step: 1
           unit_of_measurement: "%"
+          mode: slider
     min_surplus:
-      name: Mindest‑Überschuss (W)
+      name: Mindest-Überschuss (W)
       default: 500
       selector:
         number:
-          min: 0
-          max: 10000
+          min: -20000
+          max: 20000
           step: 50
           unit_of_measurement: "W"
+          mode: slider
 
 trigger:
   - platform: state
@@ -58,21 +68,28 @@ trigger:
     entity_id: !input battery_soc_sensor
 
 action:
+  - variables:
+      pv_raw: "{{ states('!input surplus_sensor')|float(0) }}"
+      pv_adj: >
+        {% if !input invert_surplus %}
+          {{ pv_raw }}
+        {% else %}
+          {{ pv_raw * -1 }}
+        {% endif %}
   - choose:
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: !input min_soc
-          - condition: numeric_state
-            entity_id: !input surplus_sensor
-            above: !input min_surplus
+          - condition: template
+            value_template: "{{ pv_adj|float(0) >= !input min_surplus|float }}"
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input target_switch
-    default:
-      - service: switch.turn_off
-        target:
-          entity_id: !input target_switch
+      default:
+        - service: switch.turn_off
+          target:
+            entity_id: !input target_switch
 
 mode: restart
