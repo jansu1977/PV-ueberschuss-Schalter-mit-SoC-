@@ -1,3 +1,6 @@
+# =============================================================
+# 1) Blueprint: PV Überschuss-Schalter mit SoC (Mehrfachgeräte)
+# =============================================================
 blueprint:
   name: "PV Überschuss-Schalter mit SoC (Mehrfachgeräte)"
   description: >
@@ -6,8 +9,9 @@ blueprint:
     * Batterie‑SoC ≥ Mindest‑SoC
 
     Bleiben **eingeschaltet**, solange der SoC über dem Schwellwert liegt –
-    selbst wenn der PV‑Überschuss zwischenzeitlich verschwindet.
-    Ausgeschaltet wird erst, wenn der SoC **unter** den Schwellwert fällt.
+    auch wenn vorübergehend kein Überschuss mehr vorhanden ist.
+    Erst wenn der SoC **unter** den Schwellwert fällt, werden alle
+    Ziel‑Schalter ausgeschaltet.
 
     **Highlights**
     * Unterstützt beliebig viele Shelly‑Steckdosen oder andere Switches
@@ -88,3 +92,131 @@ action:
     default: []
 
 mode: restart
+
+# =============================================================
+# 2) Template‑Sensoren (in templates.yaml oder configuration.yaml)
+# =============================================================
+
+# Hinweis:
+# • Lege eine Gerätegruppe  `group.miner_power_sensors`  an, die alle
+#   Leistungssensor‑Entitäten (sensor.<plug>_power) deiner Shelly‑Plugs enthält.
+# • Die Gruppe  `group.miner_switches`  besteht aus den eigentlichen Switches.
+
+template:
+  - sensor:
+      # --- ausgewählte Sensoren aus Dropdown‑Helpers ---
+      - name: "Selected Battery SoC"
+        unique_id: selected_battery_soc
+        unit_of_measurement: "%"
+        state: >
+          {{ states(states('input_select.battery_soc_sensor') or '') | float(default=0) }}
+
+      - name: "Selected PV Surplus"
+        unique_id: selected_pv_surplus
+        unit_of_measurement: "W"
+        state: >
+          {{ states(states('input_select.surplus_sensor') or '') | float(default=0) }}
+
+      # --- Gesamtleistung aller Miner‑Steckdosen ---
+      - name: "Miner Gesamtleistung"
+        unique_id: miner_total_power
+        unit_of_measurement: "W"
+        state: >
+          {{ expand('group.miner_power_sensors')
+             | map(attribute='state')
+             | map('float', 0)
+             | sum | round(1) }}
+
+  # --- Helper‑Binary für jeden Switch (ob AN) als Attribut im Gesamtsensor ---
+  - trigger:
+      - platform: time_pattern
+        minutes: "/1"   # jede Minute aktualisieren
+    sensor:
+      - name: "Miner Detailleistung"
+        unique_id: miner_detail_power
+        state: "{{ now() }}"   # Dummy‑State (Zeitstempel)
+        attributes: >
+          {% set ns = namespace(out={}) %}
+          {% for s in expand('group.miner_power_sensors') %}
+            {% set ns.out = ns.out | combine({ s.name: s.state | float(0) }) %}
+          {% endfor %}
+          {{ ns.out }}
+
+# =============================================================
+# 3) Lovelace‑Dashboard (zwei Views)
+# =============================================================
+
+views:
+  # 3a) Status‑Panel
+  - title: PV‑Miner‑Panel
+    path: pv_miner_panel
+    icon: mdi:solar-power
+    type: panel
+    cards:
+      - type: vertical-stack
+        cards:
+          # Akku‑SoC und Überschuss Gauges
+          - type: horizontal-stack
+            cards:
+              - type: gauge
+                entity: sensor.selected_battery_soc
+                name: Akku‑SoC
+                min: 0
+                max: 100
+                unit: "%"
+                severity:
+                  green: 60
+                  yellow: 30
+                  red: 0
+              - type: gauge
+                entity: sensor.selected_pv_surplus
+                name: PV‑Überschuss
+                min: -1000
+                max: 5000
+                unit: "W"
+
+          # Gesamtleistung aller Miner
+          - type: gauge
+            entity: sensor.miner_gesamtleistung
+            name: Miner‑Gesamtleistung
+            min: 0
+            max: 3000
+            unit: "W"
+
+          # Einzel‑Leistungen & Schalter‑Status
+          - type: entities
+            title: Einzel‑Verbrauch & Status
+            show_header_toggle: false
+            entities:
+              - entity: group.miner_switches
+                name: Miner‑Schalter (Gruppe)
+              - entity: sensor.miner_detailleistung
+                name: Leistung je Steckdose
+                type: attribute
+
+  # 3b) Einstellungen‑View
+  - title: Einstellungen
+    path: einstellungen
+    icon: mdi:cog
+    type: panel
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: |
+              ## Sensor‑ & Geräte‑Zuordnung
+              Wähle hier, **welche Sensoren** für Überschuss und Akku‑SoC
+              verwendet werden sollen, **welche Shelly‑Steckdosen** zur
+              *Miner Gruppe* gehören und **welche Leistungssensoren** in die
+              Berechnung einfließen.
+          - type: entities
+            show_header_toggle: false
+            entities:
+              - entity: input_select.surplus_sensor
+                name: PV‑Überschuss‑Sensor wählen
+              - entity: input_select.battery_soc_sensor
+                name: Batterie‑SoC‑Sensor wählen
+              - entity: group.miner_switches
+                name: Steckdosen‑Gruppe (Schalter)
+              - entity: group.miner_power_sensors
+                name: Leistungssensoren‑Gruppe
