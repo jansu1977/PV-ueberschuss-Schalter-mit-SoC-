@@ -1,23 +1,26 @@
 blueprint:
-  name: "PV Überschuss‑Schalter mit SoC (mit Vorzeichen‑Option & Verzögerung)"
+  name: "PV Überschuss‑Schalter mit SoC (mit Verzögerung)"
   description: >
-    Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind
+    Schaltet einen beliebigen Schalter **EIN**, sobald **gleichzeitig**
 
-      • PV‑Überschuss ≥ Mindest‑Überschuss **für eine definierbare Zeit** (Hysterese)
-      • Batterie‑SoC   ≥ Mindest‑SoC
+      • der PV‑Überschuss **für eine bestimmte Zeit** (▼ Überschuss‑Verzögerung)
+        **größer/gleich** dem eingestellten Schwellenwert ist  
+      • der Akku‑SoC **größer/gleich** dem Mindest‑SoC ist
 
     *Bleibt* **EIN**, solange der SoC oberhalb der Schwelle liegt – unabhängig davon,
     ob der PV‑Überschuss zwischenzeitlich zurückgeht.  
     Erst wenn der SoC **unter** den Schwellenwert fällt, wird AUS geschaltet.
 
+    > **Hinweis:** Wenn dein Sensor bei Einspeisung **negative** Werte liefert,
+    > gib einfach einen **negativen** Mindest‑Überschuss an (z. B. −500 W).
+
     **Inputs (alle in der UI einstellbar)**
       * Ziel‑Schalter (`switch.*`)
       * PV‑Überschuss‑Sensor (W)
-      * **Vorzeichen umkehren?** (falls dein Sensor bei Einspeisung **negativ** wird)
       * Batterie‑SoC‑Sensor (%)
       * Mindest‑SoC‑Schwelle (0‑100 %)
       * Mindest‑Überschuss (−20 000 … +20 000 W)
-      * **Überschuss‑Verzögerung** (0‑600 s) → so lange muss der Überschuss anliegen, bevor eingeschaltet wird
+      * Überschuss‑Verzögerung (0‑600 s)
 
   domain: automation
 
@@ -33,11 +36,6 @@ blueprint:
       selector:
         entity:
           domain: sensor
-    invert_surplus:
-      name: Vorzeichen des Überschuss‑Sensors umkehren?
-      default: false
-      selector:
-        boolean: {}
     battery_soc_sensor:
       name: Batterie‑SoC‑Sensor (%)
       selector:
@@ -81,9 +79,6 @@ trigger:
     entity_id: !input battery_soc_sensor
 
 action:
-  - variables:
-      pv_raw: "{{ states('!input surplus_sensor') | float(0) }}"
-      pv_adj: "{{ pv_raw * (-1 if !input invert_surplus else 1) }}"
   - choose:
       # -------- EINschalten --------
       - conditions:
