@@ -1,47 +1,47 @@
 blueprint:
-  name: "PV Überschuss-Schalter mit SoC (mit Vorzeichen-Option)"
+  name: "PV Überschuss‑Schalter mit SoC (mit Vorzeichen‑Option)"
   description: >
     Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind:
-      • PV-Überschuss ≥ Mindest-Überschuss  
-      • Batterie-SoC    ≥ Mindest-SoC
+      • PV‑Überschuss ≥ Mindest‑Überschuss  
+      • Batterie‑SoC    ≥ Mindest‑SoC
 
     *Bleibt* EIN, solange die Bedingungen gelten, und schaltet AUS, sobald eine
     davon nicht mehr erfüllt ist.
 
     **Inputs (alle in der UI einstellbar)**
-      * Ziel-Schalter         (`switch.*`)
-      * PV-Überschuss-Sensor  (W)
+      * Ziel‑Schalter         (`switch.*`)
+      * PV‑Überschuss‑Sensor  (W)
       * **Vorzeichen umkehren?** (falls dein Sensor bei Einspeisung **negativ** wird)
-      * Batterie-SoC-Sensor   (%)
-      * Mindest-SoC-Schwelle  (Slider 0-100 %)
-      * Mindest-Überschuss    (Slider −20 000 … +20 000 W)
+      * Batterie‑SoC‑Sensor   (%)
+      * Mindest‑SoC‑Schwelle  (Slider 0‑100 %)
+      * Mindest‑Überschuss    (Slider −20 000 … +20 000 W)
 
   domain: automation
 
   input:
     target_switch:
-      name: Ziel-Schalter
+      name: Ziel‑Schalter
       selector:
         entity:
           filter:
             domain: switch
     surplus_sensor:
-      name: PV-Überschuss-Sensor (W)
+      name: PV‑Überschuss‑Sensor (W)
       selector:
         entity:
           domain: sensor
     invert_surplus:
-      name: Vorzeichen des Überschuss-Sensors umkehren?
+      name: Vorzeichen des Überschuss‑Sensors umkehren?
       default: false
       selector:
         boolean: {}
     battery_soc_sensor:
-      name: Batterie-SoC-Sensor (%)
+      name: Batterie‑SoC‑Sensor (%)
       selector:
         entity:
           domain: sensor
     min_soc:
-      name: Mindest-SoC (%)
+      name: Mindest‑SoC (%)
       default: 50
       selector:
         number:
@@ -51,7 +51,7 @@ blueprint:
           unit_of_measurement: "%"
           mode: slider
     min_surplus:
-      name: Mindest-Überschuss (W)
+      name: Mindest‑Überschuss (W)
       default: 500
       selector:
         number:
