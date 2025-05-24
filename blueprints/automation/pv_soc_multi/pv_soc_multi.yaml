@@ -1,18 +1,12 @@
 blueprint:
   name: "PV Überschuss-Schalter mit SoC (Mehrfachgeräte)"
   description: >
-    Schaltet eine oder mehrere Schalter-Entitäten **ein**, sobald
-    * PV‑Überschuss ≥ Mindest‑Überschuss **und**
-    * Batterie‑SoC ≥ Mindest‑SoC
+    Schaltet mehrere Shelly‑Steckdosen **ein**, sobald
+      • PV‑Überschuss ≥ Mindest‑Überschuss (Vorzeichen per Option umkehrbar)
+      • Batterie‑SoC ≥ Mindest‑SoC.
 
-    Bleiben **eingeschaltet**, solange der SoC über dem Schwellwert liegt –
-    selbst wenn der PV‑Überschuss zwischenzeitlich verschwindet.
-    Ausgeschaltet wird erst, wenn der SoC **unter** den Schwellwert fällt.
-
-    **Highlights**
-    * Unterstützt beliebig viele Shelly‑Steckdosen oder andere Switches
-    * Alle Parameter bequem in der UI konfigurierbar (kein YAML nötig)
-    * Voll kompatibel mit Home‑Assistant 2024.10+
+    Steckdosen **bleiben an**, solange der SoC oberhalb liegt –
+    erst bei SoC < Schwelle werden sie ausgeschaltet.
 
   domain: automation
   input:
@@ -27,6 +21,11 @@ blueprint:
       selector:
         entity:
           domain: sensor
+    invert_surplus:
+      name: Vorzeichen des Überschuss‑Sensors umkehren?
+      default: false
+      selector:
+        boolean: {}
     battery_soc_sensor:
       name: Batterie‑SoC‑Sensor (%)
       selector:
@@ -53,7 +52,6 @@ blueprint:
           unit_of_measurement: "W"
           mode: slider
 
-# ---------- Blueprint‑Logik ----------
 trigger:
   - platform: state
     entity_id: !input surplus_sensor
@@ -62,11 +60,16 @@ trigger:
 
 action:
   - choose:
-      # ------- Einschalten -------
       - conditions:
-          - condition: numeric_state
-            entity_id: !input surplus_sensor
-            above: !input min_surplus
+          - condition: template
+            value_template: >
+              {% set raw = states('!input surplus_sensor')|float(0) %}
+              {% if !input invert_surplus %}
+                {% set pv = -raw %}
+              {% else %}
+                {% set pv = raw %}
+              {% endif %}
+              {{ pv >= !input min_surplus }}
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: !input min_soc
@@ -74,8 +77,6 @@ action:
           - service: switch.turn_on
             target:
               entity_id: !input target_switches
-
-      # ------- Ausschalten -------
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
@@ -84,7 +85,6 @@ action:
           - service: switch.turn_off
             target:
               entity_id: !input target_switches
-
     default: []
 
 mode: restart
