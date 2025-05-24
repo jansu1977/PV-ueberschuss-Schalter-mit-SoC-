@@ -186,13 +186,17 @@ action:
   - choose:
       # ------- EINschalten -------
       - conditions:
-          - condition: template
-            value_template: "{{ pv >= min_surplus }}"
+          # PV-Überschuss ≥ Schwelle **für** Überschuss-Verzögerung
+          - condition: numeric_state
+            entity_id: !input surplus_sensor
+            above: "{{ min_surplus }}"
             for:
               seconds: !input surplus_delay
+          # Akku-SoC ≥ Schwelle
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: "{{ min_soc }}"
+          # Netz-Import unter Limit
           - condition: template
             value_template: "{{ grid_import <= !input import_limit }}"
         sequence:
