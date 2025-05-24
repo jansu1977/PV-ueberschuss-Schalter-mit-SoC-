@@ -69,27 +69,22 @@ trigger:
 
 action:
   - variables:
-      pv_raw: "{{ states('!input surplus_sensor')|float(0) }}"
-      pv_adj: >
-        {% if !input invert_surplus %}
-          {{ pv_raw }}
-        {% else %}
-          {{ pv_raw * -1 }}
-        {% endif %}
+      pv_raw: "{{ states('!input surplus_sensor') | float(0) }}"
+      pv_adj: "{{ (-1 if !input invert_surplus else 1) * pv_raw }}"
   - choose:
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: !input min_soc
           - condition: template
-            value_template: "{{ pv_adj|float(0) >= !input min_surplus|float }}"
+            value_template: "{{ pv_adj >= !input min_surplus | float }}"
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input target_switch
-      default:
-        - service: switch.turn_off
-          target:
-            entity_id: !input target_switch
+    default:
+      - service: switch.turn_off
+        target:
+          entity_id: !input target_switch
 
 mode: restart
