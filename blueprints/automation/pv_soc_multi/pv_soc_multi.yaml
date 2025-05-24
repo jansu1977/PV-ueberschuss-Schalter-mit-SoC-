@@ -1,20 +1,23 @@
 blueprint:
-  name: "PV Überschuss‑Schalter mit SoC (mit Vorzeichen‑Option)"
+  name: "PV Überschuss‑Schalter mit SoC (mit Vorzeichen‑Option & Verzögerung)"
   description: >
-    Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind:
-      • PV‑Überschuss ≥ Mindest‑Überschuss  
-      • Batterie‑SoC    ≥ Mindest‑SoC
+    Schaltet einen beliebigen Schalter **EIN**, wenn **beide** Bedingungen erfüllt sind
 
-    *Bleibt* EIN, solange die Bedingungen gelten, und schaltet AUS, sobald eine
-    davon nicht mehr erfüllt ist.
+      • PV‑Überschuss ≥ Mindest‑Überschuss **für eine definierbare Zeit** (Hysterese)
+      • Batterie‑SoC   ≥ Mindest‑SoC
+
+    *Bleibt* **EIN**, solange der SoC oberhalb der Schwelle liegt – unabhängig davon,
+    ob der PV‑Überschuss zwischenzeitlich zurückgeht.  
+    Erst wenn der SoC **unter** den Schwellenwert fällt, wird AUS geschaltet.
 
     **Inputs (alle in der UI einstellbar)**
-      * Ziel‑Schalter         (`switch.*`)
-      * PV‑Überschuss‑Sensor  (W)
+      * Ziel‑Schalter (`switch.*`)
+      * PV‑Überschuss‑Sensor (W)
       * **Vorzeichen umkehren?** (falls dein Sensor bei Einspeisung **negativ** wird)
-      * Batterie‑SoC‑Sensor   (%)
-      * Mindest‑SoC‑Schwelle  (Slider 0‑100 %)
-      * Mindest‑Überschuss    (Slider −20 000 … +20 000 W)
+      * Batterie‑SoC‑Sensor (%)
+      * Mindest‑SoC‑Schwelle (0‑100 %)
+      * Mindest‑Überschuss (−20 000 … +20 000 W)
+      * **Überschuss‑Verzögerung** (0‑600 s) → so lange muss der Überschuss anliegen, bevor eingeschaltet wird
 
   domain: automation
 
@@ -60,6 +63,16 @@ blueprint:
           step: 50
           unit_of_measurement: "W"
           mode: slider
+    surplus_delay:
+      name: Überschuss‑Verzögerung (s)
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 600
+          step: 5
+          unit_of_measurement: "s"
+          mode: slider
 
 trigger:
   - platform: state
@@ -70,21 +83,31 @@ trigger:
 action:
   - variables:
       pv_raw: "{{ states('!input surplus_sensor') | float(0) }}"
-      pv_adj: "{{ (-1 if !input invert_surplus else 1) * pv_raw }}"
+      pv_adj: "{{ pv_raw * (-1 if !input invert_surplus else 1) }}"
   - choose:
+      # -------- EINschalten --------
       - conditions:
           - condition: numeric_state
             entity_id: !input battery_soc_sensor
             above: !input min_soc
-          - condition: template
-            value_template: "{{ pv_adj >= !input min_surplus | float }}"
+          - condition: numeric_state
+            entity_id: !input surplus_sensor
+            above: !input min_surplus
+            for:
+              seconds: !input surplus_delay
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input target_switch
-    default:
-      - service: switch.turn_off
-        target:
-          entity_id: !input target_switch
+      # -------- AUSschalten --------
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            below: !input min_soc
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input target_switch
+    default: []
 
 mode: restart
