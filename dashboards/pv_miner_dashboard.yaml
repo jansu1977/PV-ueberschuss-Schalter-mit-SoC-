@@ -1,1 +1,90 @@
-views: []
+blueprint:
+  name: "PV Überschuss-Schalter mit SoC (Mehrfachgeräte)"
+  description: >
+    Schaltet mehrere Shelly‑Steckdosen **ein**, sobald
+      • PV‑Überschuss ≥ Mindest‑Überschuss (Vorzeichen per Option umkehrbar)
+      • Batterie‑SoC ≥ Mindest‑SoC.
+
+    Steckdosen **bleiben an**, solange der SoC oberhalb liegt –
+    erst bei SoC < Schwelle werden sie ausgeschaltet.
+
+  domain: automation
+  input:
+    target_switches:
+      name: Ziel‑Schalter (eine oder mehrere)
+      selector:
+        entity:
+          domain: switch
+          multiple: true
+    surplus_sensor:
+      name: PV‑Überschuss‑Sensor (W)
+      selector:
+        entity:
+          domain: sensor
+    invert_surplus:
+      name: Vorzeichen des Überschuss‑Sensors umkehren?
+      default: false
+      selector:
+        boolean: {}
+    battery_soc_sensor:
+      name: Batterie‑SoC‑Sensor (%)
+      selector:
+        entity:
+          domain: sensor
+    min_soc:
+      name: Mindest‑SoC (%)
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
+    min_surplus:
+      name: Mindest‑Überschuss (W)
+      default: 500
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 50
+          unit_of_measurement: "W"
+          mode: slider
+
+trigger:
+  - platform: state
+    entity_id: !input surplus_sensor
+  - platform: state
+    entity_id: !input battery_soc_sensor
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {% set raw = states('!input surplus_sensor')|float(0) %}
+              {% if !input invert_surplus %}
+                {% set pv = -raw %}
+              {% else %}
+                {% set pv = raw %}
+              {% endif %}
+              {{ pv >= !input min_surplus }}
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            above: !input min_soc
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input target_switches
+      - conditions:
+          - condition: numeric_state
+            entity_id: !input battery_soc_sensor
+            below: !input min_soc
+        sequence:
+          - service: switch.turn_off
+            target:
+              entity_id: !input target_switches
+    default: []
+
+mode: restart

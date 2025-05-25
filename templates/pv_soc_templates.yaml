@@ -1,1 +1,35 @@
-template: []
+
+template:
+  - sensor:
+      - name: "Selected PV Surplus"
+        unique_id: selected_pv_surplus
+        unit_of_measurement: "W"
+        state: >
+          {{ states(states('input_select.surplus_sensor') or '') | float(0) }}
+
+      - name: "Selected Battery SoC"
+        unique_id: selected_battery_soc
+        unit_of_measurement: "%"
+        state: >
+          {{ states(states('input_select.battery_soc_sensor') or '') | float(0) }}
+
+  - sensor:
+      - name: "Miner Gesamtleistung"
+        unique_id: miner_total_power
+        unit_of_measurement: "W"
+        state: >
+          {{ expand('group.miner_power_sensors') | map(attribute='state') | map('float',0) | sum | round(1) }}
+
+  - trigger:
+      - platform: time_pattern
+        minutes: "/1"
+    sensor:
+      - name: "Miner Detailleistung"
+        unique_id: miner_detail_power
+        state: "{{ now() }}"
+        attributes: >
+          {% set ns = namespace(out={}) %}
+          {% for s in expand('group.miner_power_sensors') %}
+            {% set ns.out = ns.out | combine({ s.name: (s.state | float(0)) }) %}
+          {% endfor %}
+          {{ ns.out }}
