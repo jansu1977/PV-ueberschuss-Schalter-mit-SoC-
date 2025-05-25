@@ -1,18 +1,18 @@
 blueprint:
-  name: "PV Überschuss-Schalter mit SoC (v5-final)"
+  name: "PV Überschuss-Schalter mit SoC (v5-fix)"
   description: >
-    Steuert mehrere Shelly-Steckdosen oder andere Switches nach PV-Überschuss
-    und Batterie-SoC. Enthält Verzögerungs-Logik, Prioritäten, Netz-Import-Limit
-    sowie optionale Benachrichtigungen.
+    Steuert mehrere Switches stufenweise nach PV-Überschuss & Batterie-SoC.
+    • Ein-Verzögerung
+    • Aus-Verzögerung
+    • Prioritäten
+    • Netz-Import-Limit
+    • Notify
 
   domain: automation
 
   input:
     target_switches:
       name: Schalter-Liste (Priorität)
-      description: |
-        Wähle eine oder mehrere Switch-Entitäten aus.
-        Die Reihenfolge im Dropdown bestimmt die Schalt-Priorität.
       selector:
         entity:
           domain: switch
@@ -20,9 +20,6 @@ blueprint:
 
     step_power:
       name: Schalt-Leistung je Stufe (W)
-      description: |
-        Zusätzlicher PV-Überschuss, der für jede weitere Steckdose benötigt wird.
-        Beispiel: 500 W = zweite Steckdose schaltet erst bei PV ≥ 1000 W, dritte ≥ 1500 W.
       default: 500
       selector:
         number:
@@ -33,17 +30,12 @@ blueprint:
 
     surplus_sensor:
       name: PV-Überschuss-Sensor (W)
-      description: |
-        Sensor, der den aktuellen PV-Überschuss (positiv) / Netzbezug (negativ)
-        in Watt angibt.
       selector:
         entity:
           domain: sensor
 
     min_surplus:
       name: Mindest-Überschuss (W)
-      description: |
-        Erst ab diesem Überschuss-Wert wird eingeschaltet.
       default: 500
       selector:
         number:
@@ -54,9 +46,6 @@ blueprint:
 
     surplus_delay:
       name: Überschuss-Verzögerung (s)
-      description: |
-        Wartezeit, die der Überschuss über der Schwelle verbleiben muss,
-        bevor eingeschaltet wird.
       default: 60
       selector:
         number:
@@ -67,16 +56,12 @@ blueprint:
 
     battery_soc_sensor:
       name: Batterie-SoC-Sensor (%)
-      description: |
-        Sensor, der den aktuellen Ladezustand der Batterie in Prozent liefert.
       selector:
         entity:
           domain: sensor
 
     min_soc:
       name: Mindest-SoC (%)
-      description: |
-        Unter diesem Ladezustand schaltet die Automation alle Steckdosen aus.
       default: 50
       selector:
         number:
@@ -87,9 +72,6 @@ blueprint:
 
     off_delay:
       name: Aus-Verzögerung (s)
-      description: |
-        Verzögerung nach Unterschreiten des SoC-Schwellenwerts,
-        bevor ausgeschaltet wird.
       default: 60
       selector:
         number:
@@ -100,8 +82,6 @@ blueprint:
 
     import_limit:
       name: Netz-Import-Limit (W)
-      description: |
-        Zuschalten nur, wenn der aktuelle Netzbezug unter diesem Wert liegt.
       default: 200
       selector:
         number:
@@ -112,8 +92,6 @@ blueprint:
 
     notify_target:
       name: Notify-Dienst (optional)
-      description: |
-        Optionaler Push-Benachrichtigungsdienst, z.B. notify.mobile_app_xyz
       default: ""
       selector:
         text: {}
@@ -127,54 +105,71 @@ trigger:
       seconds: 5
 
 variables:
-  pv_now: "{{ states(!input surplus_sensor) | float(0) }}"
-  soc_now: "{{ states(!input battery_soc_sensor) | float(0) }}"
-  grid_imp: "{{ states('sensor.grid_import') | float(0) if states('sensor.grid_import') not in ['unknown','unavailable',''] else 0 }}"
+  # Inputs als eigene Variablen
+  switches:      !input target_switches
+  step_power:    !input step_power
+  surplus_entity: !input surplus_sensor
+  soc_entity:     !input battery_soc_sensor
+  min_surplus:   !input min_surplus
+  min_soc:       !input min_soc
+  surplus_delay: !input surplus_delay
+  off_delay:     !input off_delay
+  import_limit:  !input import_limit
+  notify_id:     !input notify_target
+
+  # Jetzt sauber per Jinja auslesen
+  pv_now: "{{ states(surplus_entity) | float(0) }}"
+  soc_now: "{{ states(soc_entity)     | float(0) }}"
+  grid_imp: >
+    {{ states('sensor.grid_import') | float(0)
+       if states('sensor.grid_import') not in ['unknown','unavailable','']
+       else 0 }}
 
 action:
   - choose:
-      # ---------- Einschalten ----------
+
+      # -------- Einschalten ----------
       - conditions:
           - condition: template
-            value_template: "{{ pv_now >= !input min_surplus }}"
+            value_template: "{{ pv_now >= min_surplus }}"
             for:
-              seconds: !input surplus_delay
+              seconds: "{{ surplus_delay }}"
           - condition: template
-            value_template: "{{ soc_now >= !input min_soc }}"
+            value_template: "{{ soc_now >= min_soc }}"
           - condition: template
-            value_template: "{{ grid_imp <= !input import_limit }}"
+            value_template: "{{ grid_imp <= import_limit }}"
         sequence:
           - repeat:
-              for_each: !input target_switches
+              for_each: "{{ switches }}"
               sequence:
                 - variables:
                     idx: "{{ repeat.index0 }}"
                 - condition: template
                   value_template: >
-                    {{ pv_now >= (!input min_surplus) + (idx * !input step_power) }}
+                    {{ pv_now >= (min_surplus + (idx * step_power)) }}
                 - service: switch.turn_on
                   target:
                     entity_id: "{{ repeat.item }}"
 
-      # ---------- Ausschalten ----------
+      # -------- Ausschalten ----------
       - conditions:
           - condition: template
-            value_template: "{{ soc_now < !input min_soc }}"
+            value_template: "{{ soc_now < min_soc }}"
             for:
-              seconds: !input off_delay
+              seconds: "{{ off_delay }}"
         sequence:
           - service: switch.turn_off
             target:
-              entity_id: !input target_switches
+              entity_id: "{{ switches }}"
 
-  # ---------- Benachrichtigung ----------
+  # -------- Notify ------------
   - if:
-      - "{{ !input notify_target != '' }}"
+      - "{{ notify_id != '' }}"
     then:
-      - service: "{{ !input notify_target }}"
+      - service: "{{ notify_id }}"
         data:
           message: >
-            PV-Miner {{ 'AN' if pv_now >= !input min_surplus and soc_now >= !input min_soc else 'AUS' }}
+            PV-Miner {{ 'AN' if pv_now >= min_surplus and soc_now >= min_soc else 'AUS' }}
             – PV: {{ pv_now|round }} W / SoC: {{ soc_now|round }} %.
 
 mode: restart
