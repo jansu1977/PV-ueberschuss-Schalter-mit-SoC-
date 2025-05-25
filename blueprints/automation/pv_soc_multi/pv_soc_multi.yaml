@@ -215,16 +215,17 @@ action:
                   message: "Miner‑Automatik: EIN (SoC={{ soc }} %, PV={{ pv }} W)"
 
       # ------- AUSschalten -------
-      - conditions:
-          - condition: numeric_state
-            entity_id: !input battery_soc_sensor
-            below: "{{ min_soc }}"
-            for:
-              seconds: !input off_delay
-        sequence:
-          - service: homeassistant.turn_off
-            target:
-              entity_id: !input target_switches
+		- conditions:
+			# Akku-SoC unter Schwelle?
+		- condition: template
+			value_template: >
+				{{ states(!input battery_soc_sensor) | float(0) < min_soc }}
+		sequence:
+			- delay:
+				seconds: !input off_delay
+			- service: switch.turn_off
+			target:
+				entity_id: !input target_switches
           - if: "{{ notify_service }}"
             then:
               - service: "{{ notify_service }}"
