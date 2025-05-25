@@ -1,0 +1,59 @@
+type: markdown
+content: |
+  # 🔋 PV Überschuss-Steuerung Dashboard
+
+  ## ⚙️ Aktuelle Konfiguration
+  **Automation:** {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'friendly_name') }}  
+  **Status:** {% if is_state('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'on') %}🟢 Aktiv{% else %}🔴 Inaktiv{% endif %}
+
+  ---
+
+  ## 📊 Live Sensorwerte
+  | Sensor | Aktueller Wert | Konfigurierter Grenzwert |
+  |--------|----------------|--------------------------|
+  | **☀️ PV-Überschuss** | {{ states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'surplus_sensor')) \| float(0) \| round(0) }} W | Min: {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'min_surplus') }} W |
+  | **🔋 Batterie SoC** | {{ states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'battery_soc_sensor')) \| float(0) \| round(0) }}% | Ein: ≥{{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'min_soc') }}% / Aus: <{{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'off_soc_threshold') }}% |
+  | **⚡ Netzbezug** | {{ states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'grid_import_sensor')) \| float(0) \| round(0) }} W | Max: {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'import_limit') }} W |
+
+  ---
+
+  ## 🔌 Gesteuerte Schalter
+  {% set switches = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'target_switches') %}
+  {% if switches %}
+    {% for switch in switches %}
+      {% set index = loop.index %}
+      {% set power_threshold = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'min_surplus') + ((index - 1) * state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'step_power')) %}
+  **{{ index }}. {{ state_attr(switch, 'friendly_name') or switch }}**  
+  Status: {% if is_state(switch, 'on') %}🟢 EIN{% else %}⚪ AUS{% endif %} | Schwelle: {{ power_threshold }} W
+    {% endfor %}
+  {% else %}
+  *Keine Schalter konfiguriert*
+  {% endif %}
+
+  ---
+
+  ## ⏱️ Verzögerungen & Limits
+  - **Einschaltverzögerung:** {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'surplus_delay') }}s
+  - **Ausschaltverzögerung:** {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'off_delay') }}s  
+  - **Leistungsschritt:** {{ state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'step_power') }} W pro Schalter
+
+  ---
+
+  ## 🚦 Aktuelle Bedingungen
+  {% set current_surplus = states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'surplus_sensor')) | float(0) %}
+  {% set current_soc = states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'battery_soc_sensor')) | float(0) %}
+  {% set current_import = states(state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'grid_import_sensor')) | float(0) %}
+  {% set min_surplus = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'min_surplus') %}
+  {% set min_soc = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'min_soc') %}
+  {% set off_soc = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'off_soc_threshold') %}
+  {% set import_limit = state_attr('automation.pv_uberschuss_schalter_mit_soc_v5_final', 'import_limit') %}
+
+  **Einschalten möglich:** {% if current_surplus >= min_surplus and current_soc >= min_soc and current_import <= import_limit %}✅ JA{% else %}❌ NEIN{% endif %}  
+  **Ausschalten erforderlich:** {% if current_soc < off_soc %}⚠️ JA (SoC zu niedrig){% else %}✅ NEIN{% endif %}
+
+  {% if current_surplus < min_surplus %}⚠️ PV-Überschuss zu gering ({{ current_surplus }}W < {{ min_surplus }}W){% endif %}
+  {% if current_soc < min_soc %}⚠️ Batterie-SoC zu niedrig für Einschalten ({{ current_soc }}% < {{ min_soc }}%){% endif %}
+  {% if current_import > import_limit %}⚠️ Netzbezug zu hoch ({{ current_import }}W > {{ import_limit }}W){% endif %}
+
+  *Letzte Aktualisierung: {{ now().strftime('%d.%m.%Y %H:%M:%S') }}*
+title: PV Steuerung
