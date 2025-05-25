@@ -1,7 +1,7 @@
 blueprint:
   name: "PV‑Überschuss‑Schalter (SoC, Verzögerung, Prioritäten, Notify)"
   description: |
-    ### Kurzfassung der Logik
+    ### Kurzfassung der Logik V5
     * **EIN**  → PV‑Überschuss ≥ Mindest‑Überschuss **für** _Überschuss‑Verzögerung_ Sekunden **und** Akku‑SoC ≥ Mindest‑SoC **und** Netz‑Import ≤ Limit.
       Schalter werden in der angegebenen Reihenfolge eingeschaltet; pro Stufe ist `Schalt‑Leistung` Watt zusätzlicher Überschuss nötig.
     * **AUS** → Akku‑SoC < Mindest‑SoC **für** _Aus‑Verzögerung_ Sekunden.
