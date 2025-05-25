@@ -1,5 +1,5 @@
 blueprint:
-  name: PV Überschuss-Schalter mit SoC (v5.1-final mit separatem Aus-SoC)
+  name: PV Überschuss-Schalter mit SoC (v5.2)
   description: Steuert stufenweise mehrere Schalter basierend auf PV-Überschuss und Batterie-SoC. Konfigurierbare Schwellwerte, Verzögerungen, Prioritäten und Netzbezugslimit. Separater SoC-Schwellwert zum Ausschalten aller Geräte. Optionale Benachrichtigungen.
   domain: automation
   input:
