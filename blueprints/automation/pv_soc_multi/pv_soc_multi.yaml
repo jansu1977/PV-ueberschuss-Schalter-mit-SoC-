@@ -1,5 +1,5 @@
 blueprint:
-  name: "PV Überschuss-Schalter mit SoC (v5-fix)"
+  name: "PV Überschuss-Schalter mit SoC (v5-fix2)"
   description: >
     Steuert mehrere Switches stufenweise nach PV-Überschuss & Batterie-SoC.
     • Ein-Verzögerung
@@ -23,72 +23,52 @@ blueprint:
       default: 500
       selector:
         number:
-          min: 0
-          max: 5000
-          step: 50
-          unit_of_measurement: "W"
+          min: 0; max: 5000; step: 50; unit_of_measurement: "W"
 
     surplus_sensor:
       name: PV-Überschuss-Sensor (W)
       selector:
-        entity:
-          domain: sensor
+        entity: { domain: sensor }
 
     min_surplus:
       name: Mindest-Überschuss (W)
       default: 500
       selector:
         number:
-          min: -20000
-          max: 20000
-          step: 50
-          unit_of_measurement: "W"
+          min: -20000; max: 20000; step: 50; unit_of_measurement: "W"
 
     surplus_delay:
       name: Überschuss-Verzögerung (s)
       default: 60
       selector:
         number:
-          min: 0
-          max: 600
-          step: 5
-          unit_of_measurement: "s"
+          min: 0; max: 600; step: 5; unit_of_measurement: "s"
 
     battery_soc_sensor:
       name: Batterie-SoC-Sensor (%)
       selector:
-        entity:
-          domain: sensor
+        entity: { domain: sensor }
 
     min_soc:
       name: Mindest-SoC (%)
       default: 50
       selector:
         number:
-          min: 0
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
+          min: 0; max: 100; step: 1; unit_of_measurement: "%"
 
     off_delay:
       name: Aus-Verzögerung (s)
       default: 60
       selector:
         number:
-          min: 0
-          max: 600
-          step: 5
-          unit_of_measurement: "s"
+          min: 0; max: 600; step: 5; unit_of_measurement: "s"
 
     import_limit:
       name: Netz-Import-Limit (W)
       default: 200
       selector:
         number:
-          min: 0
-          max: 5000
-          step: 50
-          unit_of_measurement: "W"
+          min: 0; max: 5000; step: 50; unit_of_measurement: "W"
 
     notify_target:
       name: Notify-Dienst (optional)
@@ -101,11 +81,9 @@ trigger:
     entity_id:
       - !input surplus_sensor
       - !input battery_soc_sensor
-    for:
-      seconds: 5
+    for: { seconds: 5 }
 
 variables:
-  # Inputs als eigene Variablen
   switches:      !input target_switches
   step_power:    !input step_power
   surplus_entity: !input surplus_sensor
@@ -117,52 +95,45 @@ variables:
   import_limit:  !input import_limit
   notify_id:     !input notify_target
 
-  # Jetzt sauber per Jinja auslesen
   pv_now: "{{ states(surplus_entity) | float(0) }}"
   soc_now: "{{ states(soc_entity)     | float(0) }}"
   grid_imp: >
-    {{ states('sensor.grid_import') | float(0)
-       if states('sensor.grid_import') not in ['unknown','unavailable','']
-       else 0 }}
+    {{ states('sensor.grid_import')|float(0)
+       if states('sensor.grid_import') not in ['unknown','unavailable',''] else 0 }}
 
 action:
   - choose:
 
-      # -------- Einschalten ----------
+      # ----- Einschalten -----
       - conditions:
           - condition: template
             value_template: "{{ pv_now >= min_surplus }}"
-            for:
-              seconds: "{{ surplus_delay }}"
           - condition: template
             value_template: "{{ soc_now >= min_soc }}"
           - condition: template
             value_template: "{{ grid_imp <= import_limit }}"
         sequence:
+          - delay: { seconds: !input surplus_delay }
           - repeat:
               for_each: "{{ switches }}"
               sequence:
-                - variables:
-                    idx: "{{ repeat.index0 }}"
+                - variables: { idx: "{{ repeat.index0 }}" }
                 - condition: template
                   value_template: >
                     {{ pv_now >= (min_surplus + (idx * step_power)) }}
                 - service: switch.turn_on
-                  target:
-                    entity_id: "{{ repeat.item }}"
+                  target: { entity_id: "{{ repeat.item }}" }
 
-      # -------- Ausschalten ----------
+      # ----- Ausschalten -----
       - conditions:
           - condition: template
             value_template: "{{ soc_now < min_soc }}"
-            for:
-              seconds: "{{ off_delay }}"
         sequence:
+          - delay: { seconds: !input off_delay }
           - service: switch.turn_off
-            target:
-              entity_id: "{{ switches }}"
+            target: { entity_id: "{{ switches }}" }
 
-  # -------- Notify ------------
+  # ----- Benachrichtigung -----
   - if:
       - "{{ notify_id != '' }}"
     then:
