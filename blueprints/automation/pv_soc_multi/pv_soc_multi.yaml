@@ -1,6 +1,6 @@
 blueprint:
-  name: PV Überschuss-Schalter mit SoC (v5-final)
-  description: Steuert stufenweise mehrere Schalter basierend auf PV-Überschuss und Batterie-SoC. Konfigurierbare Schwellwerte, Verzögerungen, Prioritäten und Netzbezugslimit. Optionale Benachrichtigungen.
+  name: PV Überschuss-Schalter mit SoC (v5.1-final mit separatem Aus-SoC)
+  description: Steuert stufenweise mehrere Schalter basierend auf PV-Überschuss und Batterie-SoC. Konfigurierbare Schwellwerte, Verzögerungen, Prioritäten und Netzbezugslimit. Separater SoC-Schwellwert zum Ausschalten aller Geräte. Optionale Benachrichtigungen.
   domain: automation
   input:
     target_switches:
@@ -34,7 +34,7 @@ blueprint:
       default: 100
       selector:
         number:
-          min: -5000 # Kann auch negativen Überschuss erlauben (Netzbezug)
+          min: -5000
           max: 20000
           step: 10
           unit_of_measurement: "W"
@@ -57,7 +57,7 @@ blueprint:
         entity:
           domain: sensor
           device_class: battery
-    min_soc:
+    min_soc: # Dieser ist nur noch für das EINSCHALTEN relevant
       name: Mindest Batterie SoC zum Einschalten
       description: Minimaler Ladezustand der Batterie (%), damit eingeschaltet wird.
       default: 50
@@ -68,9 +68,20 @@ blueprint:
           step: 1
           unit_of_measurement: "%"
           mode: slider
+    off_soc_threshold: # NEUER INPUT für das Ausschalten
+      name: Ausschalt SoC Schwellwert (Alle Schalter AUS)
+      description: Wenn der Batterie-SoC unter diesen Wert fällt, werden alle Schalter nach der Ausschaltverzögerung ausgeschaltet.
+      default: 45 # Beispiel: etwas niedriger als min_soc
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider
     off_delay:
       name: Ausschaltverzögerung nach SoC-Unterschreitung
-      description: Dauer in Sekunden, die gewartet wird, nachdem min_soc unterschritten wurde, bevor alle Schalter ausgeschaltet werden.
+      description: Dauer in Sekunden, die gewartet wird, nachdem der 'Ausschalt SoC Schwellwert' unterschritten wurde, bevor alle Schalter ausgeschaltet werden.
       default: 300
       selector:
         number:
@@ -113,7 +124,7 @@ trigger:
     entity_id: !input battery_soc_sensor
     id: soc_changed
   - platform: state
-    entity_id: !input grid_import_sensor # Auch auf Netzbezug reagieren
+    entity_id: !input grid_import_sensor
     id: grid_import_changed
 
 variables:
@@ -123,7 +134,8 @@ variables:
   input_grid_import_sensor_entity: !input grid_import_sensor
   
   input_min_surplus: !input min_surplus
-  input_min_soc: !input min_soc
+  input_min_soc: !input min_soc # Für Einschalten
+  input_off_soc_threshold: !input off_soc_threshold # NEU: Für Ausschalten
   input_step_power: !input step_power
   input_import_limit: !input import_limit
   input_target_switches: !input target_switches
@@ -147,38 +159,31 @@ action:
           - condition: template
             value_template: "{{ current_surplus >= input_min_surplus }}"
           - condition: template
-            value_template: "{{ current_soc >= input_min_soc }}"
-          - condition: template # Netzbezug darf nicht zu hoch sein
+            value_template: "{{ current_soc >= input_min_soc }}" # Nutzt min_soc zum Einschalten
+          - condition: template
             value_template: "{{ current_grid_import <= input_import_limit }}"
         sequence:
-          # Einschaltverzögerung
           - delay:
               seconds: "{{ input_surplus_delay_sec }}"
-          # Nach Verzögerung erneut prüfen, ob Bedingungen noch gelten
-          - condition: template # Erneute Prüfung aller Bedingungen
+          - condition: template # Erneute Prüfung aller Bedingungen nach Delay
             value_template: >
               {{ states(input_surplus_sensor_entity) | float(0) >= input_min_surplus and
                  states(input_battery_soc_sensor_entity) | float(0) >= input_min_soc and
                  states(input_grid_import_sensor_entity) | float(0) <= input_import_limit }}
-          # Iteriere über die Ziel-Schalter
           - repeat:
               for_each: "{{ input_target_switches }}"
               sequence:
                 - variables:
                     switch_index: "{{ repeat.index - 1 }}" # 0-basiert
                     current_switch_entity_id: "{{ repeat.item }}"
-                    # Benötigter Überschuss für diesen spezifischen Schalter
                     required_surplus_for_this_switch: "{{ input_min_surplus + (switch_index * input_step_power) }}"
-                # Bedingung: Genug Überschuss für diesen Schalter UND Schalter ist aus
                 - condition: template
                   value_template: >
                     {{ states(input_surplus_sensor_entity) | float(0) >= required_surplus_for_this_switch and
                        is_state(current_switch_entity_id, 'off') }}
-                # Schalte den aktuellen Schalter ein
                 - service: switch.turn_on
                   target:
                     entity_id: "{{ current_switch_entity_id }}"
-                # Optionale Benachrichtigung für das Einschalten
                 - if:
                     - condition: template
                       value_template: "{{ notify_service | length > 0 }}"
@@ -187,32 +192,25 @@ action:
                       data:
                         message: "PV-Schalter EIN: {{ state_attr(current_switch_entity_id, 'friendly_name') | default(current_switch_entity_id) }} (Stufe {{ switch_index + 1 }}) - PV: {{ states(input_surplus_sensor_entity) | float(0) | round(0) }}W / SoC: {{ states(input_battery_soc_sensor_entity) | float(0) | round(0) }}%"
                       
-      # OPTION 2: Ausschalten prüfen und durchführen
+      # OPTION 2: Ausschalten prüfen und durchführen (nutzt jetzt input_off_soc_threshold)
       - conditions:
-          # Bedingung für Ausschalten: SoC ist unter Minimum gefallen
+          # Bedingung für Ausschalten: SoC ist unter den separaten Ausschalt-Schwellwert gefallen
           - condition: template
-            value_template: "{{ current_soc < input_min_soc }}"
+            value_template: "{{ current_soc < input_off_soc_threshold }}" # GEÄNDERT
         sequence:
-          # Ausschaltverzögerung
           - delay:
               seconds: "{{ input_off_delay_sec }}"
-          # Nach Verzögerung erneut prüfen, ob SoC immer noch zu niedrig ist
+          # Nach Verzögerung erneut prüfen, ob SoC immer noch zu niedrig ist (gemäß Ausschalt-Schwellwert)
           - condition: template
-            value_template: "{{ states(input_battery_soc_sensor_entity) | float(0) < input_min_soc }}"
-          # Schalte alle Ziel-Schalter aus
+            value_template: "{{ states(input_battery_soc_sensor_entity) | float(0) < input_off_soc_threshold }}" # GEÄNDERT
           - service: switch.turn_off
             target:
               entity_id: "{{ input_target_switches }}"
-          # Optionale Benachrichtigung für das Ausschalten
           - if:
               - condition: template
                 value_template: "{{ notify_service | length > 0 }}"
             then:
               - service: "{{ notify_service }}"
                 data:
-                  message: "PV-Schalter ALLE AUS - SoC: {{ states(input_battery_soc_sensor_entity) | float(0) | round(0) }}% (unter {{ input_min_soc }}%)"
+                  message: "PV-Schalter ALLE AUS - SoC: {{ states(input_battery_soc_sensor_entity) | float(0) | round(0) }}% (unter {{ input_off_soc_threshold }}%)" # GEÄNDERT
 
-    # Default-Aktion (optional, falls keine der obigen Bedingungen zutrifft)
-    # Hier könnte man z.B. einfach nichts tun oder einen Log-Eintrag erstellen.
-    # Für dieses Szenario nicht unbedingt nötig.
-    # default: []
