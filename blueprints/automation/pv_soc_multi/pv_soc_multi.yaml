@@ -3,8 +3,8 @@ blueprint:
   description: >-
     Schaltet mehrere Geräte intelligent basierend auf PV-Überschuss, Batterieladestand (SoC) und Prioritäten.
     Berücksichtigt individuelle Leistungsschwellen, SoC-Fenster pro Gerät, Netzbezugslimits
-    und bietet eine flexible Interpretation des Überschuss-Sensors.
-  domain: automation
+    und bietet eine flexible Interpretation des Überschuss-Sensors. (Struktur V7)
+  domain: automation # Wichtig: Definiert, dass dieses Blueprint eine Automation erstellt
   input:
     # --- Hauptsensoren ---
     pv_power_entity:
@@ -143,18 +143,17 @@ blueprint:
         Liste der zu steuernden Schalter. Fügen Sie für jeden Schalter ein Objekt hinzu.
         Wichtig: Die Reihenfolge hier bestimmt NICHT die Priorität. Die Priorität wird pro Schalter festgelegt.
       selector:
-        object: {} # Erlaubt die Eingabe einer Liste von YAML-Objekten in der UI
+        object: {}
 
     # --- Verzögerungen ---
     surplus_check_on_delay_seconds:
       name: Einschaltverzögerung für Überschussprüfung
       description: >-
         Sekunden, die der Überschuss stabil über der benötigten Schwelle liegen muss, bevor ein Gerät einschaltet.
-        Reduziert häufiges Schalten bei stark schwankendem Überschuss.
       selector:
         number:
           min: 0
-          max: 1800 # 30 Minuten
+          max: 1800
           step: 1
           unit_of_measurement: "s"
       default: 60
@@ -179,178 +178,148 @@ blueprint:
           step: 1
           unit_of_measurement: "s"
       default: 300
+  # Optional: source_url: https://gist.github.com/your_username/your_gist_id (oder Ihr GitHub Repo)
 
-  # --- Trigger für die Automation ---
-  trigger:
-    # Regelmäßige Prüfung (z.B. alle Minute)
-    - platform: time_pattern
-      minutes: "/1"
-    # Bei relevanten Sensoränderungen (optional, kann zu vielen Triggern führen)
-    # - platform: state
-    #   entity_id:
-    #     - !input pv_power_entity
-    #     - !input battery_soc_entity
-    #     - !input surplus_sensor # Falls verwendet
-    #     - !input house_consumption_entity # Falls verwendet
+# Block 2: Definition der Automation, die dieses Blueprint erzeugt
+# Diese Schlüssel stehen auf der obersten Ebene der YAML-Datei, als Geschwister zum `blueprint:`-Block.
 
-  # --- Modus ---
-  mode: restart # Wichtig, damit bei neuen Sensorwerten die Logik neu startet
+trigger:
+  - platform: time_pattern
+    minutes: "/1"
+  # Optional: Weitere Trigger, z.B. bei relevanten Sensoränderungen
+  # - platform: state
+  #   entity_id: !input battery_soc_entity
+  # - platform: state
+  #   entity_id: !input pv_power_entity # etc.
 
-  # --- Aktionen ---
-  action:
-    - variables:
-        # --- Sensorwerte einlesen und normalisieren ---
-        pv_power: "{{ states(pv_power_entity) | float(0) }}"
-        house_consumption: "{{ states(house_consumption_entity) | float(0) if house_consumption_entity != '' and house_consumption_entity != none else 0 }}"
-        direct_surplus_raw: "{{ states(surplus_sensor) | float(0) if surplus_sensor != '' and surplus_sensor != none else 'unavailable' }}"
-        battery_soc: "{{ states(battery_soc_entity) | float(0) }}"
-        
-        grid_import_raw: "{{ states(grid_import_sensor) | float(0) if grid_import_sensor != '' and grid_import_sensor != none else 0 }}"
-        # Netzbezug ist positiv, Einspeisung negativ. Für 'aktueller_netzbezug' wollen wir nur den positiven Teil.
-        current_grid_import_watts: "{{ [0, grid_import_raw] | max if grid_import_sensor != '' and grid_import_sensor != none else 0 }}"
-        
-        current_battery_discharge_watts: "{{ states(battery_discharge_power_sensor) | float(0) if battery_discharge_power_sensor != '' and battery_discharge_power_sensor != none else 0 }}"
+# Globale Bedingungen für die gesamte Automation (optional)
+# condition: []
 
-        # --- Effektiven Überschuss berechnen ---
-        calculated_surplus_value: >-
-          {% if direct_surplus_raw != 'unavailable' %}
-            {{ direct_surplus_raw }}
-          {% else %}
-            {{ pv_power - house_consumption }}
-          {% endif %}
-        
-        effective_surplus_power: >-
-          {% set raw_val = calculated_surplus_value %}
-          {% set negative_is_surplus_checkbox = surplus_sensor_reports_negative_as_surplus %}
-          {% if negative_is_surplus_checkbox %}
-            {% if raw_val < 0 %} {{ -1 * raw_val }}
-            {% else %} 0 {% endif %}
-          {% else %}
-            {% if raw_val > 0 %} {{ raw_val }}
-            {% else %} 0 {% endif %}
-          {% endif %}
+variables:
+  # --- Sensorwerte einlesen und Blueprint Inputs verwenden ---
+  pv_power_entity_in: !input pv_power_entity
+  house_consumption_entity_in: !input house_consumption_entity
+  surplus_sensor_in: !input surplus_sensor
+  surplus_sensor_reports_negative_as_surplus_in: !input surplus_sensor_reports_negative_as_surplus
+  battery_soc_entity_in: !input battery_soc_entity
+  grid_import_sensor_in: !input grid_import_sensor
+  battery_discharge_power_sensor_in: !input battery_discharge_power_sensor
+  target_switches_in: !input target_switches
 
-        # --- Globale Schwellenwerte ---
-        min_surplus_global_on: !input min_surplus_to_activate_automation
-        min_soc_global_on: !input min_soc_to_activate_automation
-        min_surplus_global_keep_on: !input min_surplus_to_keep_on_watts
-        global_soc_off: !input global_off_soc_threshold
-        max_grid_import_allowed: !input max_grid_import_while_switching_on_watts
-        max_battery_discharge_allowed: !input max_battery_discharge_power_watts
+  # --- Sensorwerte als Zahlen ---
+  pv_power: "{{ states(pv_power_entity_in) | float(0) }}"
+  house_consumption: "{{ states(house_consumption_entity_in) | float(0) if house_consumption_entity_in != '' and house_consumption_entity_in != none else 0 }}"
+  direct_surplus_raw: "{{ states(surplus_sensor_in) | float(0) if surplus_sensor_in != '' and surplus_sensor_in != none else 'unavailable' }}"
+  battery_soc: "{{ states(battery_soc_entity_in) | float(0) }}"
+  grid_import_raw: "{{ states(grid_import_sensor_in) | float(0) if grid_import_sensor_in != '' and grid_import_sensor_in != none else 0 }}"
+  current_grid_import_watts: "{{ [0, grid_import_raw] | max if grid_import_sensor_in != '' and grid_import_sensor_in != none else 0 }}"
+  current_battery_discharge_watts: "{{ states(battery_discharge_power_sensor_in) | float(0) if battery_discharge_power_sensor_in != '' and battery_discharge_power_sensor_in != none else 0 }}"
 
-        # --- Delays ---
-        on_delay: !input surplus_check_on_delay_seconds
-        off_delay_surplus: !input general_off_delay_seconds
-        off_delay_soc: !input soc_triggered_off_delay_seconds
-        
-        # --- Ziel-Schalter sortiert nach Priorität (niedrigste Zahl = höchste Priorität) ---
-        # Das 'target_switches' Input ist eine Liste von Objekten.
-        # Jedes Objekt sollte enthalten: entity_id, priority (int), power_requirement_watts (int)
-        # Optional: min_on_soc (int), max_on_soc (int), individual_off_delay_seconds (int)
-        sorted_target_switches: "{{ (target_switches if target_switches is iterable else []) | sort(attribute='priority') }}"
+  # --- Effektiven Überschuss berechnen ---
+  calculated_surplus_value: >-
+    {% if direct_surplus_raw != 'unavailable' %}
+      {{ direct_surplus_raw }}
+    {% else %}
+      {{ pv_power - house_consumption }}
+    {% endif %}
+  
+  effective_surplus_power: >-
+    {% set raw_val = calculated_surplus_value %}
+    {% set negative_is_surplus_checkbox = surplus_sensor_reports_negative_as_surplus_in %}
+    {% if negative_is_surplus_checkbox %}
+      {% if raw_val < 0 %} {{ -1 * raw_val }}
+      {% else %} 0 {% endif %}
+    {% else %}
+      {% if raw_val > 0 %} {{ raw_val }}
+      {% else %} 0 {% endif %}
+    {% endif %}
 
-    # 1. Globale Vorabprüfungen: Ist genug SoC und Überschuss überhaupt vorhanden?
-    - condition: template
-      value_template: "{{ battery_soc >= min_soc_global_on }}"
-    - condition: template
-      value_template: "{{ effective_surplus_power >= min_surplus_global_on }}"
+  # --- Globale Schwellenwerte aus Inputs ---
+  min_surplus_global_on: !input min_surplus_to_activate_automation
+  min_soc_global_on: !input min_soc_to_activate_automation
+  min_surplus_global_keep_on: !input min_surplus_to_keep_on_watts
+  global_soc_off: !input global_off_soc_threshold
+  max_grid_import_allowed: !input max_grid_import_while_switching_on_watts
+  max_battery_discharge_allowed: !input max_battery_discharge_power_watts
 
-    # --- Hauptlogik: Schalter durchgehen und EIN/AUS schalten ---
-    - choose:
-        # Fall: Es gibt konfigurierte Schalter
-        - conditions:
-            - condition: template
-              value_template: "{{ sorted_target_switches | count > 0 }}"
-          sequence:
-            # Variable für den dynamisch verfügbaren Überschuss, der durch bereits eingeschaltete Geräte reduziert wird
-            - variables:
-                remaining_surplus_for_switching: "{{ effective_surplus_power }}"
-            
-            # Schleife durch die sortierten Schalter
-            - repeat:
-                for_each: "{{ sorted_target_switches }}"
-                sequence:
-                  - variables:
-                      switch_item: "{{ repeat.item }}"
-                      switch_entity_id: "{{ switch_item.entity_id }}"
-                      switch_is_on: "{{ is_state(switch_entity_id, 'on') }}"
-                      power_needed: "{{ switch_item.power_requirement_watts | float(0) }}"
-                      priority: "{{ switch_item.priority | int(99) }}"
-                      min_on_soc_switch: "{{ switch_item.min_on_soc | float(min_soc_global_on) }}" # Fallback auf globalen Wert
-                      max_on_soc_switch: "{{ switch_item.max_on_soc | float(101) }}" # Standardmäßig keine Obergrenze
-                      # Individuelle Ausschaltverzögerung, sonst global
-                      switch_off_delay_surplus: "{{ switch_item.individual_off_delay_seconds | int(off_delay_surplus) }}"
+  # --- Delays aus Inputs ---
+  on_delay: !input surplus_check_on_delay_seconds
+  off_delay_surplus: !input general_off_delay_seconds
+  off_delay_soc: !input soc_triggered_off_delay_seconds
+  
+  # --- Ziel-Schalter sortiert nach Priorität ---
+  sorted_target_switches: "{{ (target_switches_in if target_switches_in is iterable else []) | sort(attribute='priority') }}"
 
+mode: restart
 
-                  # --- Logik zum EINSCHALTEN des aktuellen Schalters ---
-                  - choose:
-                      - conditions:
-                          # Bedingung 1: Schalter ist AUS
-                          - "{{ not switch_is_on }}"
-                          # Bedingung 2: Genug *verbleibender* Überschuss für diesen Schalter
-                          - "{{ remaining_surplus_for_switching >= power_needed }}"
-                          # Bedingung 3: SoC im erlaubten Fenster für diesen Schalter (und global)
-                          - "{{ battery_soc >= min_on_soc_switch }}"
-                          - "{{ battery_soc < max_on_soc_switch }}" # "<" um Obergrenze exklusiv zu machen
-                          # Bedingung 4: Netzbezugslimit nicht überschritten
-                          - "{{ current_grid_import_watts <= max_grid_import_allowed if grid_import_sensor != '' and grid_import_sensor != none else true }}"
-                          # Bedingung 5: Batterie-Entladelimit nicht überschritten
-                          - "{{ current_battery_discharge_watts <= max_battery_discharge_allowed if battery_discharge_power_sensor != '' and battery_discharge_power_sensor != none else true }}"
-                        sequence:
-                          - service: switch.turn_on
-                            target:
-                              entity_id: "{{ switch_entity_id }}"
-                          # "Verbrauche" den Überschuss für diesen Schalter
-                          - variables:
-                              remaining_surplus_for_switching: "{{ remaining_surplus_for_switching - power_needed }}"
-                          # Optional: Kurze Verzögerung, bevor der nächste Schalter geprüft wird, um Systemstabilität zu gewährleisten
-                          # - delay: "00:00:01" 
-                    # Kein `default` beim Einschalten, da wir nur einschalten wollen, wenn Bedingungen erfüllt sind.
+action:
+  # 1. Globale Vorabprüfungen: Ist genug SoC und Überschuss überhaupt vorhanden?
+  - condition: template
+    value_template: "{{ battery_soc >= min_soc_global_on }}"
+  - condition: template
+    value_template: "{{ effective_surplus_power >= min_surplus_global_on }}"
 
+  # --- Hauptlogik: Schalter durchgehen und EIN/AUS schalten ---
+  - choose:
+      # Fall: Es gibt konfigurierte Schalter
+      - conditions:
+          - condition: template
+            value_template: "{{ sorted_target_switches | count > 0 }}"
+        sequence:
+          # Variable für den dynamisch verfügbaren Überschuss
+          - variables:
+              remaining_surplus_for_switching: "{{ effective_surplus_power }}" # Startwert ist der globale effektive Überschuss
+          
+          # Schleife durch die sortierten Schalter
+          - repeat:
+              for_each: "{{ sorted_target_switches }}"
+              sequence:
+                - variables: # Variablen lokal für diesen Schleifendurchlauf
+                    switch_item: "{{ repeat.item }}"
+                    switch_entity_id: "{{ switch_item.entity_id }}"
+                    switch_is_on: "{{ is_state(switch_entity_id, 'on') }}"
+                    power_needed: "{{ switch_item.power_requirement_watts | float(0) }}"
+                    # priority: "{{ switch_item.priority | int(99) }}" # Nicht mehr direkt hier gebraucht, da Liste sortiert ist
+                    min_on_soc_switch: "{{ switch_item.min_on_soc | float(min_soc_global_on) }}"
+                    max_on_soc_switch: "{{ switch_item.max_on_soc | float(101) }}"
+                    switch_off_delay_surplus: "{{ switch_item.individual_off_delay_seconds | int(off_delay_surplus) }}"
 
-                  # --- Logik zum AUSSCHALTEN des aktuellen Schalters (wenn er AN ist) ---
-                  # Wird separat geprüft, da Ausschaltbedingungen anders sein können
-                  - choose:
-                      - conditions:
-                          - "{{ switch_is_on }}" # Nur prüfen, wenn Schalter AN ist
-                          # Grund 1: Globaler SoC-Abschaltwert unterschritten
-                          - condition: or
-                            conditions:
-                              - "{{ battery_soc < global_soc_off }}"
-                              # Grund 2: SoC außerhalb des spezifischen Fensters des Schalters (falls definiert)
-                              - "{{ battery_soc < min_on_soc_switch or battery_soc >= max_on_soc_switch }}"
-                              # Grund 3: Nicht mehr genug *Gesamt*-Überschuss (Fallback-Regel)
-                              # ODER spezifische Unterschreitung für diesen Schalter (komplexer, hier vereinfacht)
-                              - "{{ effective_surplus_power < (power_needed if switch_item.strict_power_off_threshold | default(false) else min_surplus_global_keep_on) }}"
-                        sequence:
-                          # Hier kommt die Verzögerungslogik für das Ausschalten ins Spiel
-                          # Für jede Ausschaltbedingung könnte eine eigene Verzögerung sinnvoll sein
-                          # Vereinfacht: Wenn eine der oberen Bedingungen zutrifft -> Ausschaltverzögerung starten
-                          - service: switch.turn_off # Diese Zeile wird durch die Verzögerungslogik unten ersetzt/erweitert
-                            target:
-                              entity_id: "{{ switch_entity_id }}"
-                            # HINWEIS: Die Implementierung der Ausschaltverzögerung ist hier vereinfacht.
-                            # Eine korrekte Verzögerung pro Schalter, die bei Wegfall der Bedingung abbricht,
-                            # erfordert komplexere Logik mit Timern oder "wait_for_trigger" mit Timeout.
-                            # Für dieses Blueprint belassen wir es bei einer direkten Abschaltung,
-                            # aber die `general_off_delay_seconds` und `soc_triggered_off_delay_seconds`
-                            # sind als Inputs da und müssten in einer "wait" Logik verwendet werden.
-                            # Beispiel für eine einfache, globale Ausschaltverzögerung (nicht ideal für individuelle Schalter):
-                            # - delay:
-                            #     seconds: "{{ off_delay_surplus if (effective_surplus_power < min_surplus_global_keep_on) else soc_triggered_off_delay_seconds }}"
-                            # - service: switch.turn_off # Erneute Prüfung nach Delay
-                            #   target:
-                            #     entity_id: "{{ switch_entity_id }}"
-                            #   condition: # Erneut prüfen, ob immer noch aus sein soll
-                            #     condition: or
-                            #     conditions:
-                            #       - "{{ states(battery_soc_entity) | float(0) < global_soc_off }}"
-                            #       - "{{ states(surplus_sensor_variable_oben_verwenden) | float(0) < min_surplus_global_keep_on }}"
-                    # Kein `default` beim Ausschalten.
+                # --- Logik zum EINSCHALTEN ---
+                - choose:
+                    - conditions:
+                        - "{{ not switch_is_on }}"
+                        - "{{ remaining_surplus_for_switching >= power_needed }}"
+                        - "{{ battery_soc >= min_on_soc_switch }}"
+                        - "{{ battery_soc < max_on_soc_switch }}"
+                        - "{{ current_grid_import_watts <= max_grid_import_allowed if grid_import_sensor_in != '' and grid_import_sensor_in != none else true }}"
+                        - "{{ current_battery_discharge_watts <= max_battery_discharge_allowed if battery_discharge_power_sensor_in != '' and battery_discharge_power_sensor_in != none else true }}"
+                      sequence:
+                        # Hier könnte die Einschaltverzögerung (on_delay) implementiert werden,
+                        # z.B. mit einem "wait_for_trigger" mit Timeout, das prüft, ob die Bedingungen für die Dauer von 'on_delay' anhalten.
+                        # Vereinfacht: direktes Einschalten
+                        - service: switch.turn_on
+                          target:
+                            entity_id: "{{ switch_entity_id }}"
+                        # "Verbrauche" den Überschuss für diesen Schalter im Kontext dieser Automationsausführung
+                        - variables:
+                            remaining_surplus_for_switching: "{{ remaining_surplus_for_switching - power_needed }}"
+                  # default: [] # Kein Default für Einschalten
 
-    # Optional: Eine Log zum Abschluss, wenn keine Schalter konfiguriert sind
-    # - default:
-    #     - service: system_log.write
-    #       data:
-    #         message: "PV Überschuss Automation V6: Keine Ziel-Schalter konfiguriert."
-    #         level: warning
+                # --- Logik zum AUSSCHALTEN ---
+                - choose:
+                    - conditions:
+                        - "{{ switch_is_on }}" # Nur prüfen, wenn Schalter AN ist
+                        - condition: or # Mindestens einer der folgenden Gründe muss zutreffen
+                          conditions:
+                            - "{{ battery_soc < global_soc_off }}"
+                            - "{{ battery_soc < min_on_soc_switch or battery_soc >= max_on_soc_switch }}"
+                            - "{{ effective_surplus_power < (power_needed if switch_item.strict_power_off_threshold | default(false) else min_surplus_global_keep_on) }}"
+                      sequence:
+                        # Hier müsste die Ausschaltverzögerungslogik implementiert werden (siehe Kommentar im vorherigen Blueprint).
+                        # Vereinfacht: direktes Ausschalten
+                        - service: switch.turn_off
+                          target:
+                            entity_id: "{{ switch_entity_id }}"
+                  # default: [] # Kein Default für Ausschalten
+    # default: [] # Kein Default für das Haupt-Choose
+
